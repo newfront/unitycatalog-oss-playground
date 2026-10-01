@@ -35,7 +35,7 @@ shared_network := "uc-shared"
 
 # Name/tag of the marimo + spark image built from the local Dockerfile.
 image := "marimo-spark"
-tag   := "latest"
+tag   := "local"
 
 # Optional pip proxy used at image build time (corporate mirrors, etc).
 # Override per-invocation, e.g. `just pypi_proxy_url=https://pypi.acme.com/simple build`.
