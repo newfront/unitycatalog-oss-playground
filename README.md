@@ -1,59 +1,121 @@
-# unitycatalog-playground
+# Run Unity Catalog Locally with Spark and Delta Lake
 
-This project makes use of the open source Unity Catalog project and introduces a full notebook environment for simplifying how you work with UC OSS.
+**unitycatalog-playground** is a complete, interactive environment for running
+open source [Unity Catalog](https://github.com/unitycatalog/unitycatalog)
+locally on macOS or Linux. It connects Unity Catalog to Apache Spark and Delta
+Lake, stores catalog metadata in PostgreSQL, stores managed-table data in
+S3-compatible object storage, and provides ready-to-run
+[marimo](https://marimo.io/) notebooks.
 
----
+Use it to create, write, and query catalog-managed Delta tables—not just start a
+catalog server.
 
-## Configure the Environment (optional proxies)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-The build can pull Python packages through a custom PyPI proxy, which is **required when building internally at Databricks** (the public PyPI is not reachable on the corporate network). Copy the example env file and fill in the proxy values you need:
+## What you get
+
+- **Unity Catalog OSS** for catalogs, schemas, tables, volumes, and credentials
+- **Apache Spark + Delta Lake** as the local compute and table engine
+- **PostgreSQL** for persistent Unity Catalog metadata
+- **RustFS** for local S3-compatible managed-table storage and credential vending
+- **marimo notebooks** with runnable Unity Catalog and Delta Lake examples
+- **Local and remote modes** for using the bundled catalog or another UC server
+
+This project complements the
+[official Unity Catalog quickstart](https://github.com/unitycatalog/unitycatalog/blob/main/docs/quickstart.md).
+The upstream quickstart is the best place to learn the server and APIs. This
+playground adds the compute engine, durable metadata database, object storage,
+and notebooks needed for an end-to-end local lakehouse.
+
+## Quickstart: run Unity Catalog locally on a Mac
+
+The container images used by the playground support both Apple Silicon
+(`arm64`) and Intel (`amd64`) Macs.
+
+### Prerequisites
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) with at
+  least 4 GB of memory available to Spark
+- [Git](https://git-scm.com/)
+- [`just`](https://github.com/casey/just), the project command runner
+
+Install and start the prerequisites with Homebrew:
 
 ```bash
-cp .env.example .env   # or: just init
+brew install --cask docker
+brew install just
+open -a Docker
 ```
 
-Then edit `.env`:
+After Docker Desktop is running:
 
 ```bash
-# Optional PyPI proxy used at build time (blank = public PyPI)
+git clone https://github.com/open-lakehouse/unitycatalog-playground.git
+cd unitycatalog-playground
+just uc=local start
+```
+
+The first start builds the notebook image and may take several minutes. When the
+environment is ready, the command prints a URL like:
+
+```text
+http://localhost:2718/?access_token=...
+```
+
+Open that URL, select `unitycatalog-delta.py`, and run the notebook cells in
+order. You will create a Unity Catalog schema and a catalog-managed Delta table,
+write sample data through Spark, and query it again.
+
+The local services are available at:
+
+- marimo notebook environment: <http://localhost:2718>
+- Unity Catalog API: <http://localhost:8080>
+- RustFS object browser: <http://localhost:9001>
+- RustFS S3 API: <http://localhost:9000>
+
+To stop the stack while preserving its metadata and table data:
+
+```bash
+just uc=local down
+```
+
+## Local and remote Unity Catalog modes
+
+One `docker-compose.yaml` supports two modes:
+
+- **Local:** `just uc=local ...` starts the complete stack: Unity Catalog,
+  PostgreSQL, RustFS, and marimo with Spark and Delta Lake.
+- **Remote:** `just ...` starts only the notebook environment. Configure
+  `UC_SERVER_URL`, `UC_SERVER_PORT`, and `UC_TOKEN` in `.env` to connect it to an
+  external Unity Catalog server.
+
+Use the same mode when starting and stopping the environment:
+
+```bash
+just uc=local start  # build and start the complete local stack
+just uc=local logs   # follow logs
+just uc=local ps     # show service status
+just uc=local down   # stop containers but preserve data
+
+just start           # connect the notebooks to a remote UC server
+just down
+```
+
+## Configuration
+
+Run `just init` to create `.env` from [`.env.example`](.env.example). The
+defaults work for the local quickstart. Edit `.env` to change Spark resources,
+ports, PostgreSQL or RustFS settings, the remote UC endpoint, or proxy settings.
+
+For environments that require package proxies:
+
+```dotenv
 PYPI_PROXY_URL=https://pypi-proxy.yourcompany.com/simple
-# Optional Maven proxy passed to the Spark container at run time (blank = Maven Central)
 MAVEN_PROXY_URL=https://maven-proxy.yourcompany.com/maven2
 ```
 
-`docker compose` automatically loads `.env`, so these values are applied when you build and run below. Leaving them blank uses the public defaults.
-
-## Build the Docker Environment
-
-```bash
-docker compose build
-```
-
-> note: This honors `PYPI_PROXY_URL` from your `.env`. You can also build the image directly with
-> `docker build -t marimo-spark .`, optionally passing `--build-arg PYPI_PROXY_URL=https://pypi-proxy.your-company.com/simple`.
-
-## Choose your Unity Catalog (local vs remote)
-
-A single `docker-compose.yaml` backs both modes. The bundled `unitycatalog`
-service sits behind a Compose [profile](https://docs.docker.com/compose/how-tos/profiles/)
-(`local-uc`), so a plain `up` starts only `marimo-spark`. Every `just` recipe
-takes a `uc` switch that toggles that profile:
-
-| Mode | What you get |
-| --- | --- |
-| `remote` (default) | Only the `marimo-spark` notebook container. Point it at an external UC via `UC_SERVER_URL` / `UC_SERVER_PORT` / `UC_TOKEN` in `.env`. |
-| `local` | Enables the `local-uc` profile: bundled `unitycatalog` + Postgres 16.3 metadata DB + [RustFS](https://rustfs.com) S3 object store (managed-table storage) **plus** `marimo-spark`, wired together for an all-in-one local stack. |
-
-```bash
-just up              # remote UC (default)  -> docker compose up
-just uc=local up     # bundled local UC + marimo -> docker compose --profile local-uc up
-just uc=local start  # build + bring up local UC detached, then print the marimo URL
-just uc=local down   # tear down the local stack
-```
-
-The `uc` switch works with every recipe (`build`, `up`, `up-detached`, `start`,
-`logs`, `ps`, `down`, …), so pass the same `uc=...` value you used to start the
-stack when you tear it down.
+Docker Compose loads `.env` automatically. Leaving those values blank uses
+public PyPI and Maven Central.
 
 ### Network bridge
 
@@ -88,57 +150,48 @@ just jars    # resolve + download into ./spark/jars
 just up      # start the environment
 ```
 
-> note: `just jars` resolves through `MAVEN_PROXY_URL` (from your `.env`) when it is
-> set. It does this with a proxy-only Ivy resolver (`spark/ivysettings.xml`) so
-> resolution goes **straight to the proxy** instead of trying the firewalled
-> `repo1.maven.org` / `spark-packages` defaults first. With `MAVEN_PROXY_URL` blank,
-> it resolves from public Maven Central as usual.
+> **Note:** `just jars` resolves through `MAVEN_PROXY_URL` (from your `.env`)
+> when it is set. It uses a proxy-only Ivy resolver
+> (`spark/ivysettings.xml`), avoiding attempts to reach the firewalled
+> `repo1.maven.org` and Spark Packages endpoints first. When
+> `MAVEN_PROXY_URL` is blank, it resolves from public Maven Central.
 
 The downloaded jars are git-ignored (the directory is kept via
 `spark/jars/.gitkeep`), so they never get committed. Re-running `just jars` is
-safe — existing jars are not re-downloaded. The coordinates it fetches live in
-the `jars_packages` variable at the top of the `[Justfile](Justfile)`; keep them
+safe—existing jars are not re-downloaded. The coordinates it fetches live in
+the `jars_packages` variable at the top of the [Justfile](Justfile); keep them
 in sync with the `spark.jars.packages` used in the notebooks.
 
-**When to use it**
+### When to use it
 
-- ✅ You want fast, repeatable notebook startup (especially across container
-rebuilds, or behind a slow/locked-down corporate network).
-- ✅ You're iterating in the `[delta_4.3_playground](marimo-playground/notebooks/delta_4.3_playground.py)`
-notebook, which **prefers** `/spark/jars` and only falls back to Maven when the
-directory is empty.
-- ⏭️ You can skip it for a quick one-off run — the notebooks still resolve from
-Maven automatically when `./spark/jars` is empty (e.g. a local `uv` run, where
-`/spark/jars` doesn't exist at all).
+- Use it for fast, repeatable notebook startup across container rebuilds.
+- Use it behind a slow or restricted corporate network.
+- Skip it for a quick one-off run; the notebooks resolve dependencies from
+  Maven automatically when `./spark/jars` is empty.
 
-> tip: The first cell of `delta_4.3_playground` prints which path is active —
-> `Jar source: local (...)` vs `Jar source: Maven (...)` — so you can confirm the
-> pre-downloaded jars are being used.
+## Included notebooks
 
-## Run the Environment
+- [`unitycatalog-delta.py`](marimo-playground/notebooks/unitycatalog-delta.py)
+  creates a schema and a catalog-managed Delta table, generates sample data,
+  writes it through Spark, and queries it.
+- [`metric-views.py`](marimo-playground/notebooks/metric-views.py) demonstrates
+  Unity Catalog metric views with reusable dimensions and measures.
+- [`delta-new-in-4.4.0.py`](marimo-playground/notebooks/delta-new-in-4.4.0.py)
+  explores Delta Lake 4.4 features on Apache Spark 4.2.
+- [`external-access-unitycatalog-delta-managed-read.py`](marimo-playground/notebooks/databricks/external-access-unitycatalog-delta-managed-read.py)
+  demonstrates reading a remote Databricks Unity Catalog table through external
+  data access and credential vending.
 
-```bash
-docker compose up
-```
+Open the marimo URL printed by `just ... start`, select a notebook, and run its
+cells in order. Markdown cells provide context and do not need to be executed.
 
-You will see the `marimo` and `unitycatalog` containers come up.
+## How the local stack works
 
-
-In order to run the full notebook environment, copy the ➜  URL: [http://0.0.0.0:2718?access_token=TOKEN](http://0.0.0.0:2718?access_token=TOKEN) and run it in your favorite browser.
-
-## Using the Notebook
-
-Once you're in the notebook environment (marimo), you simply need to **run** each cell in order (you can skip the markdown cells since they are just there to add additional context). 
-
-You'll see a view like the one below:
-
-
-
-  
-  
-When you are finished with the notebook example, you can simple **tear down the environment**.
-
-Congrats. You've now officially written a Catalog Managed Table using Delta Lake and Unity Catalog.
+Spark runs inside the marimo container and uses the Unity Catalog Spark
+connector. Unity Catalog stores object definitions in PostgreSQL and vends
+short-lived credentials for managed-table data in RustFS. This gives local
+development the same basic separation of catalog metadata, compute, and object
+storage used by a cloud lakehouse.
 
 ## Local Unity Catalog + Postgres + RustFS
 
@@ -146,7 +199,8 @@ Congrats. You've now officially written a Catalog Managed Table using Delta Lake
 upstream [postgres-example.yml](https://github.com/unitycatalog/unitycatalog/blob/main/etc/db/postgres-example.yml)).
 Hibernate is pointed at it via [`etc/conf/hibernate.properties`](etc/conf/hibernate.properties).
 Catalog metadata lives in the Docker volume `uc_postgres_data` and **survives**
-`just down` / restarts. Wipe it with `just clean` or `just down-volumes`.
+`just down` / restarts. Wipe it with `just uc=local clean` or
+`just uc=local down-volumes`.
 
 ### RustFS S3 storage
 
@@ -160,13 +214,13 @@ token is minted from RustFS rather than assumed by UC directly — see
 [`etc/rustfs/bootstrap.sh`](etc/rustfs/bootstrap.sh).)
 
 ```bash
-just uc=local start        # brings up RustFS + init + UC + marimo
-just uc=local rustfs-url    # print the RustFS console (:9001) + S3 API (:9000) URLs
+just uc=local start
+just uc=local rustfs-url
 ```
 
-Open the console at `http://localhost:9001` and log in with `RUSTFS_ACCESS_KEY` /
-`RUSTFS_SECRET_KEY` (defaults `rustfsadmin` / `rustfsadmin`) to browse the objects
-your notebooks write.
+Open <http://localhost:9001> and log in with `RUSTFS_ACCESS_KEY` and
+`RUSTFS_SECRET_KEY` (both default to `rustfsadmin`) to browse the objects your
+notebooks write.
 
 The vended STS credential **expires** (default 12h). If managed-table reads or
 writes start failing with credential errors, refresh it — the bucket and its
@@ -176,29 +230,86 @@ data are left untouched:
 just uc=local rotate-creds  # re-mint the STS credential + restart UC
 ```
 
-Object data lives in the `rustfs_data` volume (wiped by `just clean` /
-`just down-volumes`). Tune the bucket, credentials, region, and STS lifetime via
-`RUSTFS_*` / `UC_STORAGE_BUCKET` / `S3_REGION` / `STS_DURATION_SECONDS` in `.env`.
+Object data lives in the `rustfs_data` volume (wiped by
+`just uc=local clean` or `just uc=local down-volumes`). Tune the bucket,
+credentials, region, and STS lifetime with `RUSTFS_*`, `UC_STORAGE_BUCKET`,
+`S3_REGION`, and `STS_DURATION_SECONDS` in `.env`.
 
-## Tear Down the Environment
+## Stop or reset the environment
 
-Stop containers and networks (keeps the Postgres volume):
+Stop containers and networks while keeping PostgreSQL metadata and RustFS table
+data:
 
 ```bash
 just uc=local down
 # or: docker compose --profile local-uc down
 ```
 
-Also delete named volumes (wipes local UC Postgres metadata **and** all RustFS
-managed-table data) and the marimo image:
+To reset everything, delete the named volumes and the locally built marimo
+image:
 
 ```bash
-just clean
+just uc=local clean
+```
+
+> [!CAUTION]
+> `clean` permanently deletes the local Unity Catalog metadata and all managed
+> table data stored by the playground.
+
+## Troubleshooting
+
+### Docker is not running
+
+Start Docker Desktop and wait for its engine to become ready:
+
+```bash
+open -a Docker
+docker info
+```
+
+### The `uc-shared` network is missing
+
+The `just` commands create this network automatically. If Compose was invoked
+directly or startup was interrupted, recreate it with:
+
+```bash
+just net
+```
+
+### The first Spark session is slow
+
+Spark downloads Delta Lake, the Unity Catalog connector, Hadoop AWS, and their
+transitive dependencies the first time a notebook initializes. Pre-download
+them for subsequent runs:
+
+```bash
+just build
+just jars
+```
+
+### Spark exits or runs out of memory
+
+Give Docker Desktop at least 4 GB of memory for Spark. You can also lower or
+raise `SPARK_DRIVER_MEMORY` and `SPARK_DRIVER_CORES` in `.env`, then restart the
+marimo container and notebook kernel.
+
+### Managed-table operations fail after several hours
+
+The local RustFS STS credential expires after 12 hours by default. Refresh it
+without deleting the bucket or its data:
+
+```bash
+just uc=local rotate-creds
 ```
 
 ## Catalog Managed Tables — Python Helpers
 
-The helper module at `[delta/python/catalog-managed.py](delta/python/catalog-managed.py)` provides a set of reusable utilities for creating and populating catalog-managed Delta tables via PySpark. These same helpers are used interactively in the `[marimo-playground/notebooks/unitycatalog-delta.py](marimo-playground/notebooks/unitycatalog-delta.py)` notebook.
+The helper module at
+[`delta/python/catalog-managed.py`](delta/python/catalog-managed.py) provides
+reusable utilities for creating and populating catalog-managed Delta tables
+with PySpark. The
+[`unitycatalog-delta.py`](marimo-playground/notebooks/unitycatalog-delta.py)
+notebook uses the same helpers interactively.
 
 ### `Pets` dataclass
 
@@ -240,7 +351,6 @@ df.show()
 
 Schema:
 
-
 | column    | type    | nullable |
 | --------- | ------- | -------- |
 | `uuid`    | string  | no       |
@@ -248,12 +358,12 @@ Schema:
 | `age`     | integer | no       |
 | `adopted` | boolean | no       |
 
-
 ---
 
 ### `create_table_ddl(table_name, schema, properties)`
 
-Builds a `CREATE TABLE IF NOT EXISTS ... USING DELTA` DDL string from a `StructType` schema and an optional `dict` of `TBLPROPERTIES`.
+Builds a `CREATE TABLE IF NOT EXISTS ... USING DELTA` DDL string from a
+`StructType` schema and an optional `dict` of `TBLPROPERTIES`.
 
 ```python
 props = {"delta.feature.catalogManaged": "supported"}
@@ -265,7 +375,8 @@ print(ddl)
 
 ### `create_table_using_sql(table_name, schema, properties, spark)`
 
-Executes the DDL produced by `create_table_ddl` via `spark.sql`. Returns an empty `DataFrame` on success.
+Executes the DDL produced by `create_table_ddl` via `spark.sql`. Returns an
+empty `DataFrame` on success.
 
 ```python
 create_table_using_sql("sanctuary.pets", df.schema, props, spark)
@@ -275,7 +386,9 @@ create_table_using_sql("sanctuary.pets", df.schema, props, spark)
 
 ### End-to-end example
 
-The following mirrors the flow in the `[unitycatalog-delta](marimo-playground/notebooks/unitycatalog-delta.py)` notebook:
+The following mirrors the flow in the
+[`unitycatalog-delta.py`](marimo-playground/notebooks/unitycatalog-delta.py)
+notebook:
 
 ```python
 # 1. Create the schema
@@ -303,3 +416,53 @@ for batch in pets:
 spark.sql("SELECT COUNT(*) AS total FROM sanctuary.pets").show()
 ```
 
+## Frequently asked questions
+
+### Can I run Unity Catalog locally on an Apple Silicon Mac?
+
+Yes. The stack's Unity Catalog, Spark, PostgreSQL, RustFS, and AWS CLI container
+images publish `linux/arm64` variants. Docker Desktop selects them automatically
+on Apple Silicon. The same stack also supports Intel (`amd64`) Macs.
+
+### Do I need a Databricks account?
+
+No. Local mode uses the open source Unity Catalog server and runs entirely in
+Docker. A Databricks account is needed only for examples that explicitly
+connect to a Databricks-managed Unity Catalog.
+
+### How is this different from the official Unity Catalog Docker setup?
+
+The official repository provides the authoritative Unity Catalog server,
+clients, APIs, and UI. This community playground builds on that server and adds
+Spark, Delta Lake, PostgreSQL, S3-compatible storage, credential vending, and
+interactive notebooks so you can exercise complete table workflows locally.
+
+### Can the notebooks connect to another Unity Catalog server?
+
+Yes. Run in remote mode and set `UC_SERVER_URL`, `UC_SERVER_PORT`, and
+`UC_TOKEN` in `.env`:
+
+```bash
+just start
+```
+
+### Is this intended for production?
+
+No. The playground is designed for local development, demonstrations, and
+experimentation. Use production-grade identity, networking, storage,
+observability, backups, and secret management for a deployed environment.
+
+## Contributing
+
+Issues and pull requests are welcome. When reporting a startup problem, include
+your Mac architecture, Docker Desktop version, the command you ran, and the
+relevant output from:
+
+```bash
+just uc=local ps
+just uc=local logs
+```
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).
